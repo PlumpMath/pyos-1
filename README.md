@@ -41,6 +41,23 @@
 - `Ready Queue`，该队列中保存的是可以运行的任务
 - `Wait Queue`，该队列中保存的是可以需要等待的任务
 
+### Non-blocking I/O
+
+使用`select`模块来监控活跃的 `socket` 或 `file`，示例代码：
+```
+reading = []    # List of sockets waiting for read
+writing = []    # List of sockets waiting for write
+
+# Poll for I/O activity
+r,w,e = select.select(reading,writing,[],timeout)
+# r is list of sockets with incoming data
+# w is list of sockets ready to accept outgoing data
+# e is list of sockets with an error state
+```
+堵塞型`I/O`类似于`需要等待的任务`，使用这种机制，就能够让这里的调度器支持异步`I/O`了。
+
+见 [main_echo.py](./main_echo.py)
+
 ## Reference
 
 - http://www.dabeaz.com/coroutines/Coroutines.pdf

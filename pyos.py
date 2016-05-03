@@ -1,4 +1,5 @@
 from Queue import Queue
+import select
 
 class Task(object):
     """A task is a wrapper around a coroutine"""
@@ -20,7 +21,14 @@ class Scheduler(object):
     def __init__(self):
         self.ready = Queue()
         self.taskmap = {}
+
+        # Tasks waiting for other tasks to exit
         self.exit_waiting = {}
+
+        # I/O waiting
+        self.read_waiting = {}
+        self.write_waiting = {}
+
 
     def new(self, target):
         newtask = Task(target)
@@ -45,7 +53,32 @@ class Scheduler(object):
         else:
             return False
 
+    def waitforread(self, task, fd):
+        self.read_waiting[fd] = task
+
+    def waitforwrite(self, task, fd):
+        self.write_waiting[fd] = task
+
+    def iopoll(self, timeout):
+        if self.read_waiting or self.write_waiting:
+            r, w, e = select.select(self.read_waiting, self.write_waiting, [], timeout)
+
+            for fd in r:
+                self.schedule(self.read_waiting.pop(fd))
+            for fd in w:
+                self.schedule(self.write_waiting.pop(fd))
+
+    def iotask(self):
+        while True:
+            if self.ready.empty():
+                self.iopoll(None)
+            else:
+                self.iopoll(0)
+            yield
+
     def mainloop(self):
+        self.new(self.iotask())  # Launch I/O polls
+
         while self.taskmap:
             task = self.ready.get()
             try:
@@ -108,3 +141,20 @@ class WaitTask(SystemCall):
         # return immediately without waiting
         if not result:
             self.sched.schedule(task)
+
+class ReadWait(SystemCall):
+    def __init__(self, f):
+        self.f = f
+
+    def handler(self):
+        fd = self.f.fileno()
+        self.sched.waitforread(self.task, fd)
+
+
+class WriteWait(SystemCall):
+    def __init__(self, f):
+        self.f = f
+
+    def handler(self):
+        fd = self.f.fileno()
+        self.sched.waitforwrite(self.task, fd)
